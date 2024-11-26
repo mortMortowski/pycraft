@@ -1,0 +1,26 @@
+Is playable at 1 chunk (16x256x16)
+Isn't playable at 2 chunks
+
+1. VBOs Done
+
+2. Instancing Done
+
+3. Face Culling Done
+
+4. Frustum culling Done
+
+5. Level of Detail (LoD)
+
+6. Chunking / Spatial Partioning
+
+7. Occlusion culling
+
+8. Shader optimizations
+
+9. Reduce draw calls (batch rendering)
+
+10. Optimize data transfers (streaming or static buffers, don't recreate whole buffer)
+
+11. Multithreading
+
+12. Asynchronous rendering / double buffering

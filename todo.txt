@@ -1,0 +1,18 @@
+Compile command:
+pyinstaller --onefile --add-data "cobblestone.png;." --add-data "grass.png;." --add-data "icon.png;." --add-data "shadow_vertex.glsl;." --add-data "shadow_fragment.glsl;." --add-data "vertex.glsl;." --add-data "fragment.glsl;." --windowed game.py
+
+* Fix highlighting
+
+* Add opengl core profile
+* Get rid of immediate mode if exists
+* Move functions to external files
+* Move classes to external files
+* Transform functions into classes if possible
+* Fix bug when player is destroying blocks too fast
+* Fix gaps in shadows
+* Make bigger map
+* Player is sinking into ground when not looking at blocks probably because of culling
+* Handle exception errors more gracefully
+* Adjust jumping
+* Make the FPS text smaller
+* Increase resolution of the game
