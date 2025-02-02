@@ -1,4 +1,4 @@
-A minecraft clone made in python with the help of ai. Current version is in very early development. Downloadable executables both for windows and linux.
+A minecraft clone made in python with the help of ai. Current version is in very early development. Downloadable executables for Windows.
 
 ![Game]("screenshot.png")
 

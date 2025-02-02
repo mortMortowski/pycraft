@@ -12,6 +12,7 @@ out vec4 FragColor;
 uniform sampler2D texSampler[2]; // Texture sampler
 uniform sampler2D shadowMap;
 uniform vec3 lightPos;
+uniform bool isOutline; // Distinguish between normal and outline rendering
 
 float ShadowCalculation(vec4 fragPosLightSpace, vec3 fragNormal, vec3 lightDir) {
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
@@ -54,11 +55,14 @@ float ShadowCalculation(vec4 fragPosLightSpace, vec3 fragNormal, vec3 lightDir) 
 
 void main()
 {
+    // If rendering an outline use a single color like black
+    if(isOutline){
+        FragColor = vec4(0.0, 0.0, 0.0, 1.0); // Black outline
+        return;
+    }
+
     // Determine base color based on texture ID
     vec4 baseColor;
-    if (vertexColor == vec4(0.0, 0.0, 0.0, 1.0)){
-        FragColor = vertexColor;
-    } else {
         if (int(texID) == 1) {
             baseColor = texture(texSampler[0], TexCoord);
         } else if (int(texID) == 2) {
@@ -66,7 +70,6 @@ void main()
         } else {
             baseColor = vec4(1.0, 1.0, 1.0, 1.0); // White for invalid texture ID
         }
-    }
 
     vec3 lightDir = normalize(lightPos - FragPos);
 

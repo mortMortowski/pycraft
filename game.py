@@ -136,7 +136,7 @@ def organize_blocks_into_chunks(blocks):
 # Pygame and OpenGL display initialization
 def init_pygame(width, height):
     pygame.init()
-    pygame.display.set_caption("PyCraft 0.1")
+    pygame.display.set_caption("PyCraft 0.2")
     icon_path = resource_path("icon.png")
     icon = pygame.image.load(icon_path)
     pygame.display.set_icon(icon)
@@ -207,9 +207,27 @@ vbo_vertices = None
 vbo_instance = None
 vbo_instance_size = 0
 
+outline_vertices = np.array([
+    -0.5, -0.5, -0.5,   0.5, 0.5, -0.5,  # Edge 0-1
+    0.5, -0.5, -0.5,    0.5,  0.5, -0.5,  # Edge 1-2
+    -0.5,  -0.5, -0.5,   -0.5,  0.5, -0.5,  # Edge 2-3
+   -0.5,  -0.5, 0.5,    0.5, -0.5, 0.5,  # Edge 3-0
+
+    # Top face edges (4 edges)
+   0.5, 0.5,  0.5,   0.5, 0.5,  0.5,  # Edge 4-5
+    -0.5, 0.5,  0.5,    -0.5,  -0.5,  0.5,  # Edge 5-6
+    -0.5,  0.5,  0.5,   -0.5,  0.5,  -0.5,  # Edge 6-7
+   -0.5,  -0.5,  0.5,   -0.5, -0.5,  -0.5,  # Edge 7-4
+
+    # Vertical edges (4 edges)
+   -0.5, -0.5, 0.5,   -0.5, 0.5,  0.5,  # Edge 0-4
+    0.5, 0.5, 0.5,    0.5, -0.5,  -0.5,  # Edge 1-5
+    0.5,  0.5, -0.5,    0.5,  0.5,  0.5,  # Edge 2-6
+   -0.5,  0.5, -0.5,   -0.5,  0.5,  0.5   # Edge 3-7
+], dtype='float32')
+
 # Create a Vertex Buffer Object for the cubes
 def create_cube_vbo(instance_data, block_scale_factor, force_update=False):
-
     global vertices, vbo_vertices, vbo_instance, vbo_instance_size
 
     if vbo_vertices is None or force_update:
@@ -229,7 +247,11 @@ def create_cube_vbo(instance_data, block_scale_factor, force_update=False):
     else:
         glBufferSubData(GL_ARRAY_BUFFER, 0, instance_data.nbytes, instance_data)
 
-    return vbo_vertices, len(vertices), vbo_instance, instance_count, instance_data
+    outline_vbo = glGenBuffers(1)
+    glBindBuffer(GL_ARRAY_BUFFER, outline_vbo)
+    glBufferData(GL_ARRAY_BUFFER, outline_vertices.nbytes, outline_vertices, GL_STATIC_DRAW)
+
+    return vbo_vertices, len(vertices), vbo_instance, instance_count, instance_data, outline_vbo
 
 cached_text_surface = None
 cached_text = ""
@@ -237,7 +259,7 @@ cached_text = ""
 def drawText(x, y, text):
     global cached_text_surface, cached_text
     if text != cached_text:
-        font = pygame.font.SysFont('arial', 30)                                                
+        font = pygame.font.SysFont('arial', 28)                                                
         cached_text_surface = font.render(text, True, (0, 0, 0, 255)).convert_alpha()
         cached_text = text
     textData = pygame.image.tostring(cached_text_surface, "RGBA", True)
@@ -277,54 +299,41 @@ def load_shader_source(file_path):
     with open(file_path, 'r') as file:
         return file.read()
 
-def draw_single_cube(cube_position, cube_size, shader_program):
-    # Apply polygon offset to avoid z-fighting
-    outline_scale = 1.01
+def draw_cube_outline(cube_position, cube_size, shader_program, outline_vbo):
+    # Update the model matrix for this specific cube
+    model_matrix = glm.mat4(1.0)
+    model_matrix = glm.translate(model_matrix, glm.vec3(cube_position))
+    model_matrix = glm.scale(model_matrix, glm.vec3(cube_size))
+    glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm.value_ptr(model_matrix))
 
+    # Save current opengl states
+    polygon_mode = glGetIntegerv(GL_POLYGON_MODE)[0] # Extract the scalar value
+
+    # Configure for outline rendering
+    glDepthFunc(GL_LEQUAL)
+    glEnable(GL_POLYGON_OFFSET_LINE)
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-    glUniform4f(glGetUniformLocation(shader_program, "outlineColor"), 0.0, 0.0, 0.0, 1.0)
-    half_size = cube_size / 2
-    half_size *= outline_scale
-    glBegin(GL_QUADS)
+    glLineWidth(2.0) # Line width for the outline
+    glDisable(GL_CULL_FACE)
 
-    # Front face
-    glVertex3f(cube_position[0] - half_size, cube_position[1] - half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] - half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] + half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] - half_size, cube_position[1] + half_size, cube_position[2] + half_size)
+    # Bind the VBO containing the cube vertices
+    glBindBuffer(GL_ARRAY_BUFFER, outline_vbo)
 
-    # Back face
-    glVertex3f(cube_position[0] - half_size, cube_position[1] - half_size, cube_position[2] - half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] - half_size, cube_position[2] - half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] + half_size, cube_position[2] - half_size)
-    glVertex3f(cube_position[0] - half_size, cube_position[1] + half_size, cube_position[2] - half_size)
+    # Enable vertex attributes
+    glEnableVertexAttribArray(0) # Position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * 4, ctypes.c_void_p(0))
 
-    # Left face
-    glVertex3f(cube_position[0] - half_size, cube_position[1] - half_size, cube_position[2] - half_size)
-    glVertex3f(cube_position[0] - half_size, cube_position[1] - half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] - half_size, cube_position[1] + half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] - half_size, cube_position[1] + half_size, cube_position[2] - half_size)
+    # Draw the cube
+    glDrawArrays(GL_LINES, 0, 24)
 
-    # Right face
-    glVertex3f(cube_position[0] + half_size, cube_position[1] - half_size, cube_position[2] - half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] - half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] + half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] + half_size, cube_position[2] - half_size)
+    # Disable attributes and unbind the buffer
+    glDisableVertexAttribArray(0)
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
 
-    # Top face
-    glVertex3f(cube_position[0] - half_size, cube_position[1] + half_size, cube_position[2] - half_size)
-    glVertex3f(cube_position[0] - half_size, cube_position[1] + half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] + half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] + half_size, cube_position[2] - half_size)
-
-    # Bottom face
-    glVertex3f(cube_position[0] - half_size, cube_position[1] - half_size, cube_position[2] - half_size)
-    glVertex3f(cube_position[0] - half_size, cube_position[1] - half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] - half_size, cube_position[2] + half_size)
-    glVertex3f(cube_position[0] + half_size, cube_position[1] - half_size, cube_position[2] - half_size)
-
-    glEnd()
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
+    # Reset polygon mode
+    glPolygonMode(GL_FRONT_AND_BACK, polygon_mode)
+    glDisable(GL_POLYGON_OFFSET_LINE)
+    glEnable(GL_CULL_FACE)
 
 def get_block_under_cursor(cameraPos, cameraFront, instance_data, half_block_size, max_distance=6.0):
     if instance_data.size == 0:
@@ -796,7 +805,7 @@ def render_depth_map(shadow_shader, depthMapFBO, lightSpaceMatrix, model, vbo_ve
     glClear(GL_DEPTH_BUFFER_BIT)
     draw_shadow_cubes(vbo_vertices, vbo_instance, count, instance_count)
     glBindFramebuffer(GL_FRAMEBUFFER, 0)
-    glViewport(0, 0, 800, 600)
+    glViewport(0, 0, 1152, 648)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glUseProgram(0)
 
@@ -828,7 +837,7 @@ def game_loop():
 
     # Matrix variables
     proj = glm.mat4()
-    proj = glm.perspective(glm.radians(75.0), 800 / 600, 0.1, 250.0)
+    proj = glm.perspective(glm.radians(75.0), 1152 / 648, 0.1, 250.0)
     model = glm.mat4(1.0)
     model = glm.scale(model, glm.vec3(1.0))
 
@@ -870,7 +879,7 @@ def game_loop():
 
     frustum = Frustum(proj, view)
     instance_data, instance_count = update_visible_blocks(chunks, frustum)
-    vbo_vertices, count, vbo_instance, instance_count, _ = create_cube_vbo(instance_data, block_scale_factor, force_update=True)
+    vbo_vertices, count, vbo_instance, instance_count, _, outline_vbo = create_cube_vbo(instance_data, block_scale_factor, force_update=True)
 
     block_placed = False
 
@@ -921,11 +930,9 @@ def game_loop():
 
         frustum = Frustum(proj, view)
         instance_data, instance_count = update_visible_blocks(chunks, frustum)
-        vbo_vertices, count, vbo_instance, instance_count, _ = create_cube_vbo(instance_data, block_scale_factor, force_update=False)
+        vbo_vertices, count, vbo_instance, instance_count, _, outline_vbo = create_cube_vbo(instance_data, block_scale_factor, force_update=False)
 
-        #glCullFace(GL_FRONT)
         render_depth_map(shadow_shader, depthMapFBO, lightSpaceMatrix, model, vbo_vertices, vbo_instance, count, instance_count)
-        #glCullFace(GL_BACK)
 
         glUseProgram(shader_program)
 
@@ -942,12 +949,15 @@ def game_loop():
 
         if instance_count > 0:
             # Draw visible blocks
+            glUniform1i(glGetUniformLocation(shader_program, "isOutline"), GL_FALSE)
             draw_textured_cube(vbo_vertices, vbo_instance, count, instance_count)
 
         # Cast ray from the camera to detect block under cursor
         block_under_cursor = get_block_under_cursor(cameraPos, cameraFront, instance_data, half_block_size, max_distance=6.0)
         if block_under_cursor is not None:
-            draw_single_cube(block_under_cursor, block_scale_factor, shader_program)
+            glUniform1i(glGetUniformLocation(shader_program, "isOutline"), GL_TRUE)
+            draw_cube_outline(block_under_cursor, block_scale_factor, shader_program, outline_vbo)
+            glUniformMatrix4fv(glGetUniformLocation(shader_program, "model"), 1, GL_FALSE, glm.value_ptr(model))
             if event.type == pygame.MOUSEBUTTONDOWN:
 
                 if event.button == 1 and not block_destroyed2: # Left mouse button - destroy the block
@@ -959,7 +969,7 @@ def game_loop():
                     # Update instance data
                     instance_data, instance_count = blocks_to_instance_data([block for blocks in chunks.values() for block in blocks])
                     # Recreate the VBO
-                    vbo_vertices, count, vbo_instance, instance_count, _ = create_cube_vbo(instance_data, block_scale_factor, force_update=True)
+                    vbo_vertices, count, vbo_instance, instance_count, _, outline_vbo = create_cube_vbo(instance_data, block_scale_factor, force_update=True)
                     blocks_changed = True
                     block_destroyed = True
                     block_placed = False
@@ -1001,7 +1011,7 @@ def game_loop():
                         instance_data, instance_count = blocks_to_instance_data(all_blocks)
 
                         # Recreate the VBO to reflect changes
-                        vbo_vertices, count, vbo_instance, instance_count, _ = create_cube_vbo(instance_data, block_scale_factor, force_update=True)
+                        vbo_vertices, count, vbo_instance, instance_count, _, outline_vbo = create_cube_vbo(instance_data, block_scale_factor, force_update=True)
                         blocks_changed = True
                         block_placed = True
             
@@ -1034,7 +1044,7 @@ def game_loop():
             frame_count = 0
             last_time = pygame.time.get_ticks()
 
-        drawText(650, 550, f'FPS: {fps}')
+        drawText(1000, 600, f'FPS: {fps}')
 
         # Update the display
         pygame.display.flip()
@@ -1044,7 +1054,7 @@ def game_loop():
 
 # Initialize the game
 def main():
-    width, height = 800, 600
+    width, height = 1152, 648
     init_pygame(width, height)
     init_opengl(width, height)
     game_loop()
